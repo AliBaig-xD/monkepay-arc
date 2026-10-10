@@ -1,59 +1,134 @@
 # MonkePay on Arc
 
-Pay-per-request APIs for AI agents, settled in USDC on **Arc mainnet** over **x402**, with the seller/platform fee split enforced on-chain.
+**Pay-per-request APIs for AI agents, settled in USDC on Arc mainnet over [x402](https://x402.org), with the seller/platform split enforced on-chain.**
 
-[MonkePay](https://github.com/AliBaig-xD/monkepay-sdk) lets any API charge agents per call in USDC with one line of middleware. It shipped on Base, where the platform fee is collected afterwards by a sweep job. This project brings it to Arc and moves the split on-chain:
+**Live:** https://monkepay-arc-production.up.railway.app · **Contracts:** verified on [Sourcify](https://repo.sourcify.dev/5042/0x33d3d2a4c442f8df1d37bf8de46b1df81d2012e7) · **Chain:** Arc mainnet (`eip155:5042`)
 
-- **`MonkeVault`**: a per-seller pay-to address. Buyers sign a standard EIP-3009 `TransferWithAuthorization` to the vault. Anyone can submit it, and the vault pulls the funds and splits them between seller and platform **in the same transaction**. Seller, platform and fee (hard-capped at 10%) are immutable, so no server or relayer can redirect funds.
-- **`MonkeVaultFactory`**: CREATE2 vault per seller, so a seller's pay-to address is known before the vault exists.
-- **Vault-aware x402 facilitator**: verification is delegated to the reference `@x402/evm` exact scheme. Settlement for vaults goes through `vault.settle()`, and other addresses fall back to plain `transferWithAuthorization`. It is exposed as a public facilitator (`/facilitator/supported|verify|settle`).
-- **Demo paid API**: `GET /api/wallet/:address` returns an Arc wallet snapshot (USDC/EURC balances, activity, last-hour USDC flows) for **$0.01 per call**.
-- **Agent client**: uses the stock `@x402/fetch` client with **no MonkePay-specific code**. If an agent can speak x402, it can pay.
+[MonkePay](https://github.com/AliBaig-xD/monkepay-sdk) lets any API charge agents per call in USDC with one line of middleware. It shipped on Base, where the platform fee is collected afterwards by a sweep job. MonkePay on Arc rebuilds the settlement layer for Arc:
 
-## Why Arc
+| | MonkePay on Base | MonkePay on Arc |
+| --- | --- | --- |
+| Pay-to address | developer wallet (custodial, provisioned via CDP) | **per-seller `MonkeVault` contract** (non-custodial) |
+| Platform fee | collected later by a sweep cron | **split atomically in the settlement tx** |
+| Who can redirect funds | backend holds keys | **nobody**: seller, platform and fee are immutable |
+| Gas | ETH float on a separate wallet | **USDC**, the same asset being settled |
+| Finality | wait for confirmations / reorg risk | **final on inclusion** |
+| Facilitator | Coinbase CDP | **self-hosted public facilitator**, Circle-compatible via `sweep()` |
 
-- **Gas is USDC.** The facilitator's relayer holds one asset, the same one it settles, with no ETH float to manage. A settlement costs about 129k gas, roughly $0.0026 at Arc's 20 gwei floor.
-- **Deterministic finality.** A payment is final on inclusion, so the API can serve the response as soon as the receipt lands, with no reorg window.
-- **Native USDC with EIP-3009** at `0x3600…0000` (domain `USDC` / `2`), so x402's exact scheme works unchanged on `eip155:5042`.
+## What's live
 
-## Deployments (Arc mainnet, chain 5042)
-
-| Contract | Address |
-| --- | --- |
-| MonkeVaultFactory | [`0x33d3d2a4c442f8df1d37bf8de46b1df81d2012e7`](https://explorer.arc.io/address/0x33d3d2a4c442f8df1d37bf8de46b1df81d2012e7) |
-| Demo seller vault | [`0x5ff73431EBbd2Ad927f0Fa0264270A3368fe9AeC`](https://explorer.arc.io/address/0x5ff73431EBbd2Ad927f0Fa0264270A3368fe9AeC) |
-
-First mainnet settlement (agent pays $0.01, vault splits 99/1 in one tx): [`0x9f0a0257…a0`](https://explorer.arc.io/tx/0x9f0a0257023e54e948d87a7ddb60c37ecbe1ba82112e4a9e07b01b8cca2960a0)
-
-**Live demo:** https://monkepay-arc-production.up.railway.app (dashboard is indexed from the vault's on-chain `Settled` events) · facilitator: `/facilitator/supported`
+- **`MonkeVaultFactory`** [`0x33d3…12e7`](https://explorer.arc.io/address/0x33d3d2a4c442f8df1d37bf8de46b1df81d2012e7): CREATE2 factory, one vault per seller, and the address is known before deployment (`predictVault`).
+- **Demo seller vault** [`0x5ff7…9AeC`](https://explorer.arc.io/address/0x5ff73431EBbd2Ad927f0Fa0264270A3368fe9AeC): the x402 `payTo` of the demo API.
+- **Paid API:** `GET /api/wallet/:address` returns an Arc wallet snapshot (USDC/EURC balances, activity, recent USDC flows) for **$0.01 per call**.
+- **Public x402 facilitator for Arc:** `GET /facilitator/supported`, `POST /facilitator/verify`, `POST /facilitator/settle`.
+- **Web app:** live stats, settlement feed, *pay with your own wallet*, and *create your vault* for sellers.
+- **Real mainnet settlements:** e.g. [`0x9f0a…60a0`](https://explorer.arc.io/tx/0x9f0a0257023e54e948d87a7ddb60c37ecbe1ba82112e4a9e07b01b8cca2960a0). The dashboard is indexed straight from on-chain `Settled` events.
 
 ## How a payment flows
 
-```
-agent ──GET /api/wallet/0x…──────────────▶ API (x402 middleware)
-      ◀─402 PAYMENT-REQUIRED (payTo = vault, $0.01, eip155:5042)
-agent signs EIP-3009 auth (to = vault) ──▶ API ─▶ facilitator.verify (sig, amount, window, balance, simulation)
-                                                  facilitator.settle ─▶ vault.settle(auth)  ── one Arc tx:
-                                                                            USDC: payer → vault → seller (99%) + platform (1%)
-      ◀─200 + PAYMENT-RESPONSE (tx hash)
+```mermaid
+sequenceDiagram
+    participant A as Agent (any x402 client)
+    participant S as Seller API (x402 middleware)
+    participant F as Facilitator
+    participant V as MonkeVault (Arc)
+    participant U as USDC (0x3600…)
+    A->>S: GET /api/wallet/0x…
+    S-->>A: 402 PAYMENT-REQUIRED (payTo = vault, $0.01, eip155:5042)
+    A->>A: sign EIP-3009 TransferWithAuthorization (to = vault)
+    A->>S: retry with PAYMENT-SIGNATURE
+    S->>F: verify (signature, amount, window, balance, simulation)
+    S->>F: settle
+    F->>V: settle(from, value, validAfter, validBefore, nonce, sig)
+    V->>U: transferWithAuthorization → vault
+    V->>U: transfer 99% → seller, 1% → platform
+    Note over V,U: one Arc transaction, final on inclusion, gas paid in USDC
+    S-->>A: 200 + PAYMENT-RESPONSE (tx hash)
 ```
 
-## Run it
+The agent side needs **no MonkePay code**: the demo agent uses the stock `@x402/fetch` client.
+
+## Contracts
+
+`contracts/MonkeVault.sol`, about 120 lines, no dependencies.
+
+- `MonkeVault.settle(from, value, validAfter, validBefore, nonce, signature)` pulls a signed EIP-3009 payment into the vault and splits it in the same call. Anyone can submit it, and the signature commits to `to = vault`, so a relayer cannot redirect or inflate it.
+- `MonkeVault.sweep()` splits anything that reached the vault through a plain `transferWithAuthorization`, so vaults work with **any** x402 facilitator, including Circle's.
+- `MonkeVaultFactory.createVault(seller)` / `predictVault(seller)` / `vaultOf(seller)` / `isVault(addr)`.
+- The fee is fixed per factory (1%) and hard-capped at 10% in the vault constructor.
+
+## Facilitator policy
+
+The public facilitator is open, so it's guarded against griefing its gas wallet:
+
+- Arc mainnet and Arc USDC only.
+- `payTo` must be a vault from this factory.
+- Minimum payment of $0.001 (below that, gas exceeds the payment).
+- It refuses to broadcast when the relayer is low on gas (`503 facilitator_out_of_gas`).
+- Per-IP rate limits and a 32 KB body limit.
+
+Verification itself reuses the reference `@x402/evm` exact scheme, which checks the signature, amount, time window, nonce, balance and runs an on-chain simulation.
+
+## Testing
 
 ```bash
-npm install
-npm run contracts:build && npm run contracts:test  # contract tests incl. fuzzed split conservation, replay & redirect attempts
-cp .env.example .env               # fill keys; relayer needs a little USDC on Arc for gas
-npm run deploy                     # deploys factory + seller vault, prints FACTORY_ADDRESS
-npm start                          # dashboard on :4021
-npm run agent -- 0xSomeArcAddress  # pays $0.01 and prints the snapshot + settlement tx
+npm ci
+npm run contracts:test   # 8 Foundry tests: split, fuzzed conservation, replay, redirect, inflation, sweep, fee cap
+npm run typecheck
+npm run e2e              # full paid round trip on Circle's Arc fork (arc-anvil): deploy → serve → pay → assert 99/1 split
 ```
 
-Local end-to-end testing uses Circle's Arc Foundry fork (`arc-anvil --network arc --fork-url https://rpc.mainnet.arc.io`). Stock anvil cannot reproduce Arc's native-USDC transfers.
+CI (GitHub Actions) runs the contract tests, server typecheck and web build on every push.
 
-## Notes
+## Run it yourself
 
-- The fallback path settles plain `transferWithAuthorization` payments into a vault. `sweep()` then splits anything that arrived that way, so vaults stay compatible with any x402 facilitator, including Circle's.
-- At $0.01 per call, the 1% fee ($0.0001) is below the gas per settlement. Batching (x402 `batch-settlement`) is the next step for sub-cent pricing.
+```bash
+cp .env.example .env        # relayer/deployer key with a little USDC on Arc for gas
+npm run contracts:build
+npx tsx scripts/deploy.ts   # deploys factory + your vault, prints FACTORY_ADDRESS
+(cd web && npm ci && npm run build)
+npm start                   # API + facilitator + web app on :4021
+npx tsx scripts/agent.ts 0xSomeArcAddress http://localhost:4021
+```
 
-ISC licensed. Built by [Ali Baig](https://iamalibaig.com).
+### Gate your own API with a vault
+
+```ts
+import { paymentMiddleware, x402ResourceServer } from '@x402/hono'
+import { ExactEvmScheme } from '@x402/evm/exact/server'
+import { HTTPFacilitatorClient } from '@x402/core/server'
+
+const facilitator = new HTTPFacilitatorClient({ url: 'https://monkepay-arc-production.up.railway.app/facilitator' })
+const server = new x402ResourceServer(facilitator).register('eip155:5042', new ExactEvmScheme())
+
+app.use(paymentMiddleware({
+  'GET /v1/data': { accepts: { scheme: 'exact', network: 'eip155:5042', payTo: '<your MonkeVault>', price: '$0.01' } },
+}, server))
+```
+
+Create your vault from the web app (*Sellers* page) or call `createVault(yourPayoutAddress)` on the factory.
+
+## Why Arc
+
+- **Native USDC with EIP-3009** at `0x3600…0000` (EIP-712 domain `USDC` / `2`), so x402's exact scheme works unchanged.
+- **Gas in USDC.** The relayer holds only the asset it settles. A vault settlement is about 129k gas, roughly $0.003 at Arc's 20 gwei floor.
+- **Deterministic finality.** The API can serve the response the moment the receipt lands.
+
+## Roadmap
+
+- Batched settlement (x402 `batch-settlement`) so sub-cent prices are economical. Today a $0.01 call costs about $0.003 in gas.
+- `network: "arc"` in the MonkePay SDK, so existing MonkePay sellers can switch with one line.
+- An MCP tool for agents to discover and pay Arc APIs (building on [WalletLens](https://github.com/AliBaig-xD/walletlens)).
+- Durable indexer storage (Postgres) and multi-relayer key rotation.
+
+## Repo layout
+
+```
+contracts/      MonkeVault + MonkeVaultFactory (Foundry)
+test/           Foundry tests (mock EIP-3009 USDC)
+src/            Hono server: x402 paid API, public facilitator, on-chain indexer
+scripts/        deploy.ts, agent.ts (stock x402 client), e2e-fork.sh
+web/            Next.js frontend (static export, served by the server)
+```
+
+ISC licensed. Built by [Ali Baig](https://iamalibaig.com) · [GitHub](https://github.com/AliBaig-xD).
