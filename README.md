@@ -42,7 +42,7 @@ agent signs EIP-3009 auth (to = vault) ──▶ API ─▶ facilitator.verify (
 
 ```bash
 npm install
-forge build && forge test          # contract tests incl. fuzzed split conservation, replay & redirect attempts
+npm run contracts:build && npm run contracts:test  # contract tests incl. fuzzed split conservation, replay & redirect attempts
 cp .env.example .env               # fill keys; relayer needs a little USDC on Arc for gas
 npm run deploy                     # deploys factory + seller vault, prints FACTORY_ADDRESS
 npm start                          # dashboard on :4021

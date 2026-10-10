@@ -3,12 +3,12 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "build": "forge build",
-    "test": "forge test",
     "typecheck": "tsc",
     "start": "tsx src/server.ts",
     "deploy": "tsx scripts/deploy.ts",
-    "agent": "tsx scripts/agent.ts"
+    "agent": "tsx scripts/agent.ts",
+    "contracts:build": "forge build",
+    "contracts:test": "forge test"
   },
   "keywords": [],
   "author": "",
