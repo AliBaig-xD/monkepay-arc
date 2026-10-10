@@ -4,9 +4,8 @@ import { serve } from '@hono/node-server'
 import { paymentMiddleware, x402ResourceServer } from '@x402/hono'
 import { ExactEvmScheme } from '@x402/evm/exact/server'
 import { getAddress, isAddress, type Hex } from 'viem'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createFacilitator, type SettlementRecord } from './facilitator.js'
-import { publicClient, factoryAbi, erc20Abi, NETWORK, USDC, EURC, EXPLORER, usd } from './arc.js'
+import { publicClient, factoryAbi, vaultAbi, erc20Abi, NETWORK, USDC, EURC, EXPLORER, usd } from './arc.js'
 import { dashboardHtml } from './dashboard.js'
 
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`missing env ${k}`); return v }
@@ -15,12 +14,15 @@ const SELLER = getAddress(env('SELLER_ADDRESS')) as Hex
 const PRICE = process.env.PRICE_USD || '$0.01'
 const PORT = Number(process.env.PORT || 4021)
 
-// --- settlement log (small JSON file; the chain is the source of truth) -------------------------
-const DATA = process.env.DATA_DIR || './data'
-mkdirSync(DATA, { recursive: true })
-const LOG = `${DATA}/settlements.json`
-const settlements: SettlementRecord[] = existsSync(LOG) ? JSON.parse(readFileSync(LOG, 'utf8')) : []
-const record = (r: SettlementRecord) => { settlements.unshift(r); writeFileSync(LOG, JSON.stringify(settlements.slice(0, 500))) }
+// --- settlements: indexed from the vault's on-chain Settled events (the chain is the source of truth) ---
+const settlements: SettlementRecord[] = []
+const seenTx = new Set<string>()
+const record = (r: SettlementRecord) => {
+  if (seenTx.has(r.tx)) return
+  seenTx.add(r.tx)
+  settlements.push(r)
+  settlements.sort((a, b) => b.at - a.at)
+}
 
 // --- facilitator -----------------------------------------------------------------------------------
 const { facilitator, relayer } = createFacilitator({ relayerKey: env('RELAYER_PRIVATE_KEY'), factory: FACTORY, onSettled: record })
@@ -32,6 +34,25 @@ const localFacilitator = {
 
 const vault = (await publicClient.readContract({ address: FACTORY, abi: factoryAbi, functionName: 'vaultOf', args: [SELLER] })) as Hex
 if (/^0x0+$/.test(vault)) throw new Error(`no vault for seller ${SELLER}; run scripts/deploy.ts first`)
+
+// Backfill + follow Settled events. Arc caps eth_getLogs at 1,000 blocks, so walk forward in windows.
+let cursor = BigInt(process.env.START_BLOCK || '0')
+async function indexSettlements() {
+  try {
+    const head = await publicClient.getBlockNumber()
+    while (cursor <= head) {
+      const toBlock = cursor + 999n > head ? head : cursor + 999n
+      const logs = await publicClient.getLogs({ address: vault, event: vaultAbi.find((x) => x.type === 'event' && x.name === 'Settled') as any, fromBlock: cursor, toBlock })
+      for (const l of logs as any[]) {
+        const block = await publicClient.getBlock({ blockNumber: l.blockNumber })
+        record({ tx: l.transactionHash, payer: l.args.payer, vault, amount: String(l.args.amount), at: Number(block.timestamp) * 1000 })
+      }
+      cursor = toBlock + 1n
+    }
+  } catch (e) { console.warn('indexer:', (e as Error).message.split('\n')[0]) }
+  setTimeout(indexSettlements, 5_000)
+}
+indexSettlements()
 
 const app = new Hono()
 

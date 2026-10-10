@@ -25,7 +25,7 @@ Pay-per-request APIs for AI agents, settled in USDC on **Arc mainnet** over **x4
 
 First mainnet settlement (agent pays $0.01, vault splits 99/1 in one tx): [`0x9f0a0257…a0`](https://explorer.arc.io/tx/0x9f0a0257023e54e948d87a7ddb60c37ecbe1ba82112e4a9e07b01b8cca2960a0)
 
-Live demo: _URL after deploy_
+**Live demo:** https://monkepay-arc-production.up.railway.app (dashboard is indexed from the vault's on-chain `Settled` events) · facilitator: `/facilitator/supported`
 
 ## How a payment flows
 
