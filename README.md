@@ -78,7 +78,7 @@ npm run typecheck
 npm run e2e              # full paid round trip on Circle's Arc fork (arc-anvil): deploy → serve → pay → assert 99/1 split
 ```
 
-CI (GitHub Actions) runs the contract tests, server typecheck and web build on every push.
+`.github/workflows/ci.yml` runs the contract tests, server typecheck and web build on GitHub Actions.
 
 ## Run it yourself
 

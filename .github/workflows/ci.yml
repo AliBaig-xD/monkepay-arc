@@ -1,9 +1,8 @@
 name: ci
 
+# Manual for now; switch back to push/pull_request once Actions billing is enabled on the account.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   contracts:
