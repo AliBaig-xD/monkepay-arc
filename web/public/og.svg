@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#080b10"/>
+  <g stroke="#00d4aa" stroke-opacity=".05">
+    <path d="M0 105H1200M0 210H1200M0 315H1200M0 420H1200M0 525H1200M150 0V630M300 0V630M450 0V630M600 0V630M750 0V630M900 0V630M1050 0V630"/>
+  </g>
+  <rect x="80" y="96" width="250" height="40" rx="20" fill="#00d4aa" fill-opacity=".08" stroke="#00d4aa" stroke-opacity=".3"/>
+  <text x="205" y="122" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="16" letter-spacing="3" fill="#00d4aa">X402 · ARC · USDC</text>
+  <text x="80" y="250" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="76" font-weight="800" fill="#e8edf3">MonkePay on Arc</text>
+  <text x="80" y="330" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="34" fill="#8b95a1">Pay-per-request APIs for AI agents.</text>
+  <text x="80" y="378" font-family="IBM Plex Sans, Helvetica, sans-serif" font-size="34" fill="#8b95a1">Settled in USDC. Split on-chain.</text>
+  <text x="80" y="540" font-family="IBM Plex Mono, monospace" font-size="20" fill="#00d4aa">402 → sign EIP-3009 → vault.settle() → 200 ✓</text>
+</svg>

@@ -104,7 +104,7 @@ async function checkPolicy(body: any): Promise<string | null> {
 
 const app = new Hono()
 app.use('*', secureHeaders({ crossOriginResourcePolicy: 'cross-origin', contentSecurityPolicy: undefined }))
-app.use('/api/*', cors())
+app.use('/api/*', cors({ origin: '*', exposeHeaders: ['PAYMENT-REQUIRED', 'PAYMENT-RESPONSE', 'X-PAYMENT-RESPONSE'] }))
 app.use('/facilitator/*', cors({ origin: '*', allowMethods: ['GET', 'POST', 'OPTIONS'] }))
 app.use('/facilitator/*', bodyLimit({ maxSize: 32 * 1024 }))
 
