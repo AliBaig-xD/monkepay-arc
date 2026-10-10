@@ -51,7 +51,7 @@ const resourceServer = new x402ResourceServer(localFacilitator as any).register(
 app.use(paymentMiddleware({
   'GET /api/wallet/*': {
     accepts: { scheme: 'exact', network: NETWORK, payTo: vault, price: PRICE },
-    description: 'Arc wallet snapshot: USDC/EURC balances, activity and recent USDC flows',
+    description: 'Arc wallet snapshot: USDC/EURC balances, activity and recent USDC flows (~25 min)',
     mimeType: 'application/json',
   },
 }, resourceServer))
@@ -62,18 +62,26 @@ app.get('/api/wallet/:address', async (c) => {
   const address = getAddress(a)
   const head = await publicClient.getBlockNumber()
   const event = erc20Abi[1]
-  // Arc RPC caps eth_getLogs at 1,000 blocks (~8 minutes); scan the last ~hour in parallel windows.
-  const windows = Array.from({ length: 7 }, (_, i) => ({ fromBlock: head - BigInt((i + 1) * 1000) + 1n, toBlock: head - BigInt(i * 1000) }))
-  const [usdcBal, eurcBal, nonce, code, ...logs] = await Promise.all([
+  const [usdcBal, eurcBal, nonce, code] = await Promise.all([
     publicClient.readContract({ address: USDC, abi: erc20Abi, functionName: 'balanceOf', args: [address] }),
     publicClient.readContract({ address: EURC, abi: erc20Abi, functionName: 'balanceOf', args: [address] }),
     publicClient.getTransactionCount({ address }),
     publicClient.getCode({ address }),
-    ...windows.flatMap((w) => [
-      publicClient.getLogs({ address: USDC, event, args: { from: address }, ...w }),
-      publicClient.getLogs({ address: USDC, event, args: { to: address }, ...w }),
-    ]),
   ])
+  // Arc RPC caps eth_getLogs at 1,000 blocks (~8 min); scan the last ~25 min in windows, gently.
+  const WINDOWS = 3
+  const logs: any[] = []
+  let scanned = 0
+  for (let i = 0; i < WINDOWS; i++) {
+    const w = { fromBlock: head - BigInt((i + 1) * 1000) + 1n, toBlock: head - BigInt(i * 1000) }
+    try {
+      const [out, inn] = await Promise.all([
+        publicClient.getLogs({ address: USDC, event, args: { from: address }, ...w }),
+        publicClient.getLogs({ address: USDC, event, args: { to: address }, ...w }),
+      ])
+      logs.push(out, inn); scanned++
+    } catch { break } // partial history beats a failed (and therefore unpaid) response
+  }
   const flows = (logs as any[]).flat().map((l) => ({
     direction: getAddress(l.args.from) === address ? 'out' : 'in',
     counterparty: getAddress(l.args.from) === address ? l.args.to : l.args.from,
@@ -86,7 +94,7 @@ app.get('/api/wallet/:address', async (c) => {
     address, network: NETWORK, kind: code && code !== '0x' ? 'contract' : 'eoa',
     balances: { usdc: usd(usdcBal as bigint), eurc: usd(eurcBal as bigint) },
     txCount: nonce,
-    lastHour: { blocks: [Number(head) - 7000, Number(head)], transfers: flows.length, inUsdc: sum('in').toFixed(6), outUsdc: sum('out').toFixed(6), topCounterparties: counterparties, recent: flows.slice(0, 20) },
+    recent25m: { blocksScanned: scanned * 1000, transfers: flows.length, inUsdc: sum('in').toFixed(6), outUsdc: sum('out').toFixed(6), topCounterparties: counterparties, recent: flows.slice(0, 20) },
     explorer: `${EXPLORER}/address/${address}`,
   })
 })

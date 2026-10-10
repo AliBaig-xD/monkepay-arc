@@ -20,8 +20,10 @@ Pay-per-request APIs for AI agents, settled in USDC on **Arc mainnet** over **x4
 
 | Contract | Address |
 | --- | --- |
-| MonkeVaultFactory | _filled in after deploy_ |
-| Demo seller vault | _filled in after deploy_ |
+| MonkeVaultFactory | [`0x33d3d2a4c442f8df1d37bf8de46b1df81d2012e7`](https://explorer.arc.io/address/0x33d3d2a4c442f8df1d37bf8de46b1df81d2012e7) |
+| Demo seller vault | [`0x5ff73431EBbd2Ad927f0Fa0264270A3368fe9AeC`](https://explorer.arc.io/address/0x5ff73431EBbd2Ad927f0Fa0264270A3368fe9AeC) |
+
+First mainnet settlement (agent pays $0.01, vault splits 99/1 in one tx): [`0x9f0a0257…a0`](https://explorer.arc.io/tx/0x9f0a0257023e54e948d87a7ddb60c37ecbe1ba82112e4a9e07b01b8cca2960a0)
 
 Live demo: _URL after deploy_
 

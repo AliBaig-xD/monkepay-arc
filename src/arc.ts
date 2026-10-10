@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, parseAbi, parseGwei, publicActions, type Hex } from 'viem'
+import { createPublicClient, createWalletClient, fallback, http, parseAbi, parseGwei, publicActions, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { arc } from 'viem/chains'
 
@@ -11,7 +11,11 @@ export const EXPLORER = 'https://explorer.arc.io'
 export const FEES = { maxFeePerGas: parseGwei('40'), maxPriorityFeePerGas: parseGwei('1') }
 
 const rpc = process.env.ARC_RPC_URL || 'https://rpc.mainnet.arc.io'
-export const publicClient = createPublicClient({ chain: arc, transport: http(rpc) })
+// Reads rotate across Arc's public RPCs (each rate-limits bursts); writes use the primary.
+const readTransport = process.env.ARC_RPC_URL
+  ? http(rpc)
+  : fallback(arc.rpcUrls.default.http.map((u) => http(u, { retryCount: 2, retryDelay: 400 })), { rank: false })
+export const publicClient = createPublicClient({ chain: arc, transport: readTransport })
 
 export function walletFor(key: string | undefined) {
   if (!key) throw new Error('missing private key')
