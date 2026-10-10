@@ -1,0 +1,8 @@
+node_modules
+.env
+data
+out
+cache
+broadcast
+data-fork
+.env.fork
